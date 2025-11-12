@@ -1,27 +1,10 @@
 version: '3.5'
 
 services:
-  librenms:
-    image: librenms/librenms:latest
-    container_name: librenms
-    hostname: librenms
-    ports:
-      - "8000:8000"   # interfaz web
-    environment:
-      - DB_HOST=db
-      - DB_NAME=librenms
-      - DB_USER=librenms
-      - DB_PASSWORD=password
-      - BASE_URL=http://localhost:8000
-    volumes:
-      - librenms-data:/data
-    depends_on:
-      - db
-    restart: unless-stopped
-
   db:
     image: mariadb:10.5
     container_name: librenms_db
+    network_mode: "host"
     environment:
       - MYSQL_DATABASE=librenms
       - MYSQL_USER=librenms
@@ -36,6 +19,24 @@ services:
       - "--collation-server=utf8mb4_unicode_ci"
     volumes:
       - db-data:/var/lib/mysql
+    restart: unless-stopped
+
+  librenms:
+    image: librenms/librenms:latest
+    container_name: librenms
+    hostname: librenms
+    network_mode: "host"
+    environment:
+      - DB_HOST=127.0.0.1
+      - DB_NAME=librenms
+      - DB_USER=librenms
+      - DB_PASSWORD=password
+      - TZ=America/Bogota
+      - BASE_URL=http://192.168.1.164:8000
+    volumes:
+      - librenms-data:/data
+    depends_on:
+      - db
     restart: unless-stopped
 
 volumes:
