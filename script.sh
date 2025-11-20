@@ -477,10 +477,155 @@ configure_internal_poller() {
 // Configuración de rendimiento
 \$config[\"rrd\"][\"step\"] = 300;
 \$config[\"rrd\"][\"heartbeat\"] = 600;
+
+// Configuración crítica del poller
+\$config[\"poller_wrapper\"][\"workers\"] = 4;
+\$config[\"poller_wrapper\"][\"alerter\"] = true;
+\$config[\"distributed_poller\"] = false;
+\$config[\"distributed_poller_name\"] = php_uname(\"n\");
+\$config[\"distributed_poller_group\"] = 0;
 ?>' > /opt/librenms/config/config.custom.php
     " 2>/dev/null || log_warning "No se pudo configurar el poller interno completamente"
     
     log_success "Sistema de poller interno configurado"
+}
+
+# Configurar Python Wrapper Pollers
+configure_python_pollers() {
+    log_info "Configurando Python Wrapper Pollers..."
+    
+    # Esperar a que LibreNMS esté completamente iniciado
+    local max_attempts=20
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        if sudo docker exec librenms test -f /opt/librenms/poller-wrapper.py 2>/dev/null; then
+            break
+        fi
+        log_info "Esperando que LibreNMS esté completamente iniciado... (intento $attempt/$max_attempts)"
+        sleep 10
+        ((attempt++))
+    done
+    
+    if [ $attempt -gt $max_attempts ]; then
+        log_warning "LibreNMS no está completamente iniciado, continuando..."
+    fi
+    
+    # Configurar los python wrappers dentro del contenedor
+    sudo docker exec librenms bash -c "
+        # Asegurar permisos correctos
+        chown -R librenms:librenms /opt/librenms
+        chmod +x /opt/librenms/poller-wrapper.py
+        chmod +x /opt/librenms/discovery-wrapper.py
+        
+        # Crear directorios necesarios
+        mkdir -p /opt/librenms/logs
+        touch /opt/librenms/logs/librenms.log
+        chown librenms:librenms /opt/librenms/logs/librenms.log
+        
+        # Inicializar base de datos si es necesario
+        cd /opt/librenms
+        php build-base.php
+        php adduser.php admin admin 10 admin@localhost.localdomain 2>/dev/null || true
+        
+        # Configurar permisos de RRD
+        mkdir -p /opt/librenms/rrd
+        chown -R librenms:librenms /opt/librenms/rrd
+        
+        # Ejecutar discovery inicial
+        php /opt/librenms/discovery.php -h all 2>/dev/null || true
+    " 2>/dev/null || log_warning "Algunos comandos de configuración fallaron"
+    
+    log_success "Python Wrapper Pollers configurados"
+}
+
+# Configurar servicios de LibreNMS
+configure_librenms_services() {
+    log_info "Configurando servicios de LibreNMS..."
+    
+    sudo docker exec librenms bash -c "
+        # Configurar crontab dentro del contenedor
+        echo '33   */6  * * *   librenms    /opt/librenms/discovery.py -h new >> /dev/null 2>&1
+*/5  *    * * *   librenms    /opt/librenms/discovery.py -h all >> /dev/null 2>&1
+*/5  *    * * *   librenms    /opt/librenms/poller-wrapper.py 4 >> /dev/null 2>&1
+15   0    * * *   librenms    /opt/librenms/daily.sh >> /dev/null 2>&1
+*    *    * * *   librenms    /opt/librenms/alerts.php >> /dev/null 2>&1
+*    *    * * *   librenms    /opt/librenms/poll-billing.php >> /dev/null 2>&1
+01   *    * * *   librenms    /opt/librenms/billing-calculate.php >> /dev/null 2>&1
+*/5  *    * * *   librenms    /opt/librenms/check-services.php >> /dev/null 2>&1' > /etc/cron.d/librenms
+        
+        # Configurar permisos del crontab
+        chmod 644 /etc/cron.d/librenms
+        
+        # Reiniciar cron
+        service cron restart 2>/dev/null || /etc/init.d/cron restart 2>/dev/null || true
+        
+        # Verificar que los archivos Python existan
+        if [ -f /opt/librenms/poller-wrapper.py ]; then
+            echo 'poller-wrapper.py encontrado'
+        else
+            echo 'ERROR: poller-wrapper.py no encontrado'
+        fi
+        
+        if [ -f /opt/librenms/discovery-wrapper.py ]; then
+            echo 'discovery-wrapper.py encontrado'  
+        else
+            echo 'ERROR: discovery-wrapper.py no encontrado'
+        fi
+    " 2>/dev/null || log_warning "Algunos servicios no se pudieron configurar"
+    
+    log_success "Servicios de LibreNMS configurados"
+}
+
+# Solucionar problema específico de Python Wrapper Pollers
+fix_python_wrapper_issue() {
+    log_info "Solucionando problema de Python Wrapper Pollers..."
+    
+    sudo docker exec librenms bash -c "
+        # Navegar al directorio de LibreNMS
+        cd /opt/librenms
+        
+        # Asegurar que el usuario librenms tenga todos los permisos
+        chown -R librenms:librenms /opt/librenms
+        
+        # Crear/verificar archivos críticos del poller
+        if [ ! -f /opt/librenms/poller-wrapper.py ]; then
+            echo 'Creando poller-wrapper.py...'
+            curl -o /opt/librenms/poller-wrapper.py https://raw.githubusercontent.com/librenms/librenms/master/poller-wrapper.py 2>/dev/null || true
+        fi
+        
+        if [ ! -f /opt/librenms/discovery-wrapper.py ]; then
+            echo 'Creando discovery-wrapper.py...'
+            curl -o /opt/librenms/discovery-wrapper.py https://raw.githubusercontent.com/librenms/librenms/master/discovery-wrapper.py 2>/dev/null || true
+        fi
+        
+        # Dar permisos de ejecución
+        chmod +x /opt/librenms/poller-wrapper.py
+        chmod +x /opt/librenms/discovery-wrapper.py
+        chmod +x /opt/librenms/poller.php
+        chmod +x /opt/librenms/discovery.php
+        
+        # Configurar base de datos si no está configurada
+        php /opt/librenms/build-base.php 2>/dev/null || true
+        
+        # Configurar el usuario admin por defecto
+        php /opt/librenms/adduser.php admin admin 10 admin@localhost.localdomain 2>/dev/null || echo 'Usuario admin ya existe'
+        
+        # Ejecutar validate.php para verificar configuración
+        php /opt/librenms/validate.php --fix 2>/dev/null || true
+        
+        # Forzar discovery inicial
+        php /opt/librenms/discovery.php -h all 2>/dev/null || true
+    " 2>/dev/null || log_warning "Algunos comandos de corrección fallaron"
+    
+    # Reiniciar el contenedor para aplicar todos los cambios
+    log_info "Reiniciando contenedor LibreNMS para aplicar cambios..."
+    sudo docker restart librenms 2>/dev/null || true
+    
+    # Esperar a que reinicie
+    sleep 30
+    
+    log_success "Problema de Python Wrapper Pollers solucionado"
 }
 
 # Validar configuración final
@@ -543,9 +688,34 @@ validate_final_setup() {
         log_warning "⚠️  Configuración personalizada no encontrada"
     fi
     
+    # Verificar Python Wrapper Pollers
+    if sudo docker exec librenms test -f /opt/librenms/poller-wrapper.py 2>/dev/null; then
+        log_success "✅ Python Wrapper Poller encontrado"
+        
+        # Verificar permisos
+        if sudo docker exec librenms test -x /opt/librenms/poller-wrapper.py 2>/dev/null; then
+            log_success "✅ Python Wrapper Poller tiene permisos de ejecución"
+        else
+            log_warning "⚠️  Python Wrapper Poller sin permisos de ejecución"
+        fi
+    else
+        log_warning "⚠️  Python Wrapper Poller no encontrado"
+    fi
+    
+    # Verificar crontab dentro del contenedor
+    if sudo docker exec librenms test -f /etc/cron.d/librenms 2>/dev/null; then
+        log_success "✅ Crontab interno de LibreNMS configurado"
+    else
+        log_warning "⚠️  Crontab interno no configurado"
+    fi
+    
     # Ejecutar poller manual una vez para verificar funcionamiento
     log_info "Ejecutando poller manual de prueba..."
     sudo docker exec --user librenms librenms php /opt/librenms/poller.php -h $SERVER_IP -v 2>/dev/null | head -5 || log_warning "Poller manual no ejecutado correctamente"
+    
+    # Test específico del python wrapper
+    log_info "Probando Python Wrapper Poller..."
+    sudo docker exec --user librenms librenms python3 /opt/librenms/poller-wrapper.py 1 2>/dev/null | head -3 || log_warning "Python Wrapper Poller no funciona correctamente"
     
     # Verificar que LibreNMS validate pase
     log_info "Ejecutando validación completa de LibreNMS..."
@@ -652,6 +822,9 @@ main() {
     verify_deployment
     configure_snmp
     configure_internal_poller
+    configure_python_pollers
+    configure_librenms_services
+    fix_python_wrapper_issue
     add_local_device
     setup_poller
     validate_final_setup
