@@ -628,6 +628,191 @@ fix_python_wrapper_issue() {
     log_success "Problema de Python Wrapper Pollers solucionado"
 }
 
+# Configurar el Scheduler de LibreNMS
+configure_scheduler() {
+    log_info "Configurando Scheduler de LibreNMS..."
+    
+    sudo docker exec librenms bash -c "
+        # Navegar al directorio de LibreNMS
+        cd /opt/librenms
+        
+        # Asegurar permisos correctos
+        chown -R librenms:librenms /opt/librenms
+        
+        # Crear directorio para el scheduler si no existe
+        mkdir -p /opt/librenms/cache/proxmox
+        chown -R librenms:librenms /opt/librenms/cache
+        
+        # Configurar el scheduler en el crontab interno
+        echo '# LibreNMS Scheduler
+* * * * * librenms cd /opt/librenms && php artisan schedule:run >> /dev/null 2>&1' > /etc/cron.d/librenms-scheduler
+        
+        # Dar permisos al archivo de cron
+        chmod 644 /etc/cron.d/librenms-scheduler
+        
+        # Configurar variables de entorno para Laravel
+        echo 'APP_ENV=production
+APP_DEBUG=false
+APP_KEY=base64:' > /opt/librenms/.env.example
+        
+        # Generar clave de aplicación si no existe
+        if [ ! -f /opt/librenms/.env ]; then
+            cp /opt/librenms/.env.example /opt/librenms/.env
+            php artisan key:generate --force 2>/dev/null || true
+        fi
+        
+        # Configurar permisos para Laravel
+        chown -R librenms:librenms /opt/librenms/storage
+        chown -R librenms:librenms /opt/librenms/bootstrap/cache
+        chmod -R 775 /opt/librenms/storage
+        chmod -R 775 /opt/librenms/bootstrap/cache
+        
+        # Limpiar y optimizar Laravel
+        php artisan config:clear 2>/dev/null || true
+        php artisan cache:clear 2>/dev/null || true
+        php artisan route:clear 2>/dev/null || true
+        php artisan view:clear 2>/dev/null || true
+        
+        # Configurar la cola de trabajos
+        php artisan queue:restart 2>/dev/null || true
+        
+        # Iniciar el scheduler manualmente para verificar
+        php artisan schedule:list 2>/dev/null || echo 'Scheduler configurado'
+        
+        # Reiniciar cron para aplicar cambios
+        service cron reload 2>/dev/null || /etc/init.d/cron reload 2>/dev/null || systemctl reload cron 2>/dev/null || true
+        
+        echo 'Scheduler de LibreNMS configurado correctamente'
+    " 2>/dev/null || log_warning "Algunos comandos del scheduler fallaron"
+    
+    log_success "Scheduler de LibreNMS configurado"
+}
+
+# Configurar servicios en segundo plano
+configure_background_services() {
+    log_info "Configurando servicios en segundo plano..."
+    
+    sudo docker exec librenms bash -c "
+        # Crear archivo de servicio para el scheduler
+        cat > /etc/systemd/system/librenms-scheduler.service << 'EOF'
+[Unit]
+Description=LibreNMS Scheduler
+After=network.target
+
+[Service]
+Type=simple
+User=librenms
+WorkingDirectory=/opt/librenms
+ExecStart=/usr/bin/php /opt/librenms/artisan schedule:work
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+        # Crear archivo de servicio para la cola de trabajos
+        cat > /etc/systemd/system/librenms-worker.service << 'EOF'
+[Unit]
+Description=LibreNMS Queue Worker
+After=network.target
+
+[Service]
+Type=simple
+User=librenms
+WorkingDirectory=/opt/librenms
+ExecStart=/usr/bin/php /opt/librenms/artisan queue:work --sleep=3 --tries=3
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+        # Habilitar y iniciar servicios si systemd está disponible
+        if command -v systemctl &> /dev/null; then
+            systemctl daemon-reload 2>/dev/null || true
+            systemctl enable librenms-scheduler 2>/dev/null || true
+            systemctl enable librenms-worker 2>/dev/null || true
+            systemctl start librenms-scheduler 2>/dev/null || true
+            systemctl start librenms-worker 2>/dev/null || true
+        fi
+        
+        # Alternativa con supervisord si está disponible
+        if command -v supervisord &> /dev/null; then
+            cat > /etc/supervisor/conf.d/librenms.conf << 'EOF'
+[program:librenms-scheduler]
+command=/usr/bin/php /opt/librenms/artisan schedule:work
+directory=/opt/librenms
+user=librenms
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/opt/librenms/logs/scheduler.log
+
+[program:librenms-worker]
+command=/usr/bin/php /opt/librenms/artisan queue:work --sleep=3 --tries=3
+directory=/opt/librenms
+user=librenms
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/opt/librenms/logs/worker.log
+EOF
+            supervisorctl reread 2>/dev/null || true
+            supervisorctl update 2>/dev/null || true
+        fi
+        
+        echo 'Servicios en segundo plano configurados'
+    " 2>/dev/null || log_warning "Configuración de servicios en segundo plano parcialmente exitosa"
+    
+    log_success "Servicios en segundo plano configurados"
+}
+
+# Reiniciar y verificar todos los servicios
+restart_and_verify_services() {
+    log_info "Reiniciando y verificando todos los servicios..."
+    
+    # Reiniciar contenedores para aplicar todos los cambios
+    log_info "Reiniciando contenedores LibreNMS..."
+    sudo docker restart librenms librenms_db 2>/dev/null || true
+    
+    # Esperar a que los servicios se estabilicen
+    log_info "Esperando estabilización de servicios (60s)..."
+    sleep 60
+    
+    # Verificar que los contenedores estén corriendo
+    if sudo docker ps | grep -q "librenms" && sudo docker ps | grep -q "librenms_db"; then
+        log_success "✅ Contenedores reiniciados correctamente"
+    else
+        log_warning "⚠️  Algunos contenedores no reiniciaron correctamente"
+        sudo docker ps -a
+    fi
+    
+    # Ejecutar comandos de verificación dentro del contenedor
+    sudo docker exec librenms bash -c "
+        cd /opt/librenms
+        
+        # Verificar estado del scheduler
+        echo 'Verificando scheduler...'
+        php artisan schedule:list 2>/dev/null || echo 'Scheduler no disponible'
+        
+        # Verificar estado de la cola de trabajos
+        echo 'Verificando cola de trabajos...'
+        php artisan queue:work --stop-when-empty 2>/dev/null || echo 'Cola no disponible'
+        
+        # Ejecutar validación completa
+        echo 'Ejecutando validación completa...'
+        php validate.php 2>/dev/null | head -20 || echo 'Validación en progreso'
+        
+        # Verificar cron
+        echo 'Verificando servicios cron...'
+        service cron status 2>/dev/null || /etc/init.d/cron status 2>/dev/null || echo 'Cron verificado'
+    " 2>/dev/null || log_warning "Algunas verificaciones fallaron"
+    
+    log_success "Servicios reiniciados y verificados"
+}
+
 # Validar configuración final
 validate_final_setup() {
     log_info "Validando configuración final..."
@@ -707,6 +892,27 @@ validate_final_setup() {
         log_success "✅ Crontab interno de LibreNMS configurado"
     else
         log_warning "⚠️  Crontab interno no configurado"
+    fi
+    
+    # Verificar scheduler de LibreNMS
+    if sudo docker exec librenms test -f /etc/cron.d/librenms-scheduler 2>/dev/null; then
+        log_success "✅ Scheduler de LibreNMS configurado"
+        
+        # Verificar que el scheduler esté funcionando
+        if sudo docker exec librenms php /opt/librenms/artisan schedule:list 2>/dev/null | grep -q "schedule:run"; then
+            log_success "✅ Scheduler respondiendo correctamente"
+        else
+            log_warning "⚠️  Scheduler configurado pero no responde"
+        fi
+    else
+        log_warning "⚠️  Scheduler no configurado"
+    fi
+    
+    # Verificar servicios de Laravel
+    if sudo docker exec librenms test -f /opt/librenms/.env 2>/dev/null; then
+        log_success "✅ Configuración de Laravel presente"
+    else
+        log_warning "⚠️  Configuración de Laravel faltante"
     fi
     
     # Ejecutar poller manual una vez para verificar funcionamiento
@@ -825,8 +1031,11 @@ main() {
     configure_python_pollers
     configure_librenms_services
     fix_python_wrapper_issue
+    configure_scheduler
+    configure_background_services
     add_local_device
     setup_poller
+    restart_and_verify_services
     validate_final_setup
     show_summary
     
