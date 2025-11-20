@@ -14,7 +14,7 @@ Este repositorio contiene una implementación completa de **LibreNMS** usando Do
 
 ### ✨ Características principales
 
-- 🚀 **Despliegue automático** con un solo comando
+- 🚀 **Despliegue automático** con un solo comando `script.sh`
 - 🐳 **Configuración Docker optimizada** con `network_mode: host`
 - 📊 **Base de datos MariaDB** preconfigurada para LibreNMS
 - 🔧 **SNMP configurado** para automonitoreo del servidor
@@ -31,9 +31,9 @@ Este repositorio contiene una implementación completa de **LibreNMS** usando Do
 
 ```bash
 # Descargar y ejecutar script de instalación automática
-curl -fsSL https://raw.githubusercontent.com/felipevelasco7/Gestion-de-Redes/main/deployLibrenms.sh -o deployLibrenms.sh
-chmod +x deployLibrenms.sh
-sudo ./deployLibrenms.sh
+curl -fsSL https://raw.githubusercontent.com/felipevelasco7/Gestion-de-Redes/main/script.sh -o script.sh
+chmod +x script.sh
+sudo ./script.sh
 ```
 
 ### Método 2: Instalación Manual
@@ -42,6 +42,14 @@ sudo ./deployLibrenms.sh
 # 1. Clonar el repositorio
 git clone https://github.com/felipevelasco7/Gestion-de-Redes.git
 cd Gestion-de-Redes
+
+    #Para obtener la IP del servidor:
+    hostname -I
+
+    #Cambiar las IPs en el docker docker-compose.yml
+    vim docker-compose.yml   
+    # Cambiar línea:
+    BASE_URL=http://TU_IP_REAL:8000
 
 # 2. Levantar los servicios
 sudo docker compose up -d
@@ -54,10 +62,6 @@ sudo docker ps
 
 Una vez desplegado, accede a LibreNMS en: `http://TU_IP_SERVIDOR:8000`
 
-Para obtener la IP del servidor:
-```bash
-hostname -I
-```
 
 ---
 
@@ -95,7 +99,7 @@ Gestion-de-Redes/
 1. **Cambiar BASE_URL:**
    ```bash
    # Editar docker-compose.yml
-   nano docker-compose.yml
+   vim docker-compose.yml
    
    # Cambiar línea:
    - BASE_URL=http://TU_IP_REAL:8000

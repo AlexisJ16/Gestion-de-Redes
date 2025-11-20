@@ -1,4 +1,5 @@
 #!/bin/bash
+#Script de despliegue automatizado de LibreNMS con Docker Compose y configuraciones avanzadas (poller, scheduler, crontab, smnp, rotación de logs, etc.)
 set -e
 
 # Funciones de logging con colores

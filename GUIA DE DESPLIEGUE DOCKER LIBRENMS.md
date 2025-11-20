@@ -1,4 +1,4 @@
-# GUIA DE DESPLIEGUE DOCKER LIBRENMS
+# GUIA DE DESPLIEGUE Manual DOCKER LIBRENMS
 
 Created: September 1, 2025 3:10 PM
 Class: PDG2
@@ -30,6 +30,9 @@ cd Gestion-de-Redes
 ### Levanta LibreNMS con Docker Compose
 
 ```bash
+# Revisar la configuracion del compose para ajustar la IP del BASE_URL
+
+
 sudo docker compose up -d
 # o si es una version mas antigua
 sudo docker-compose up -d
