@@ -618,7 +618,8 @@ fix_python_wrapper_issue() {
         fi
         
         # Crear usuario admin con contraseña hasheada correctamente
-        mysql -u librenms -ppassword librenms -e "INSERT INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) VALUES ('admin', '\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW()) ON DUPLICATE KEY UPDATE password='\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', level=10, updated_at=NOW();" 2>/dev/null || echo 'Creación directa en BD falló, intentando con adduser.php'
+        HASH_PASSWORD='$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'
+        mysql -u librenms -ppassword librenms -e "INSERT INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) VALUES ('admin', '$HASH_PASSWORD', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW()) ON DUPLICATE KEY UPDATE password='$HASH_PASSWORD', level=10, updated_at=NOW();" 2>/dev/null || echo 'Creación directa en BD falló, intentando con adduser.php'
         
         # Método alternativo con adduser.php
         php /opt/librenms/adduser.php admin password 10 admin@localhost.localdomain 2>/dev/null || true
@@ -858,10 +859,8 @@ configure_web_authentication() {
         \" 2>/dev/null || echo 'Método Artisan falló'
         
         # Método 2: Inserción directa en base de datos con hash bcrypt
-        mysql -u librenms -ppassword librenms -e \"
-        INSERT IGNORE INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) 
-        VALUES ('admin', '\\\$2y\\\$10\\\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW());
-        \" 2>/dev/null && echo 'Usuario creado via SQL'
+        HASH_PWD='\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'
+        mysql -u librenms -ppassword librenms -e "INSERT IGNORE INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) VALUES ('admin', '$HASH_PWD', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW());" 2>/dev/null && echo 'Usuario creado via SQL'
         
         # Método 3: Usando adduser.php con contraseña diferente
         php adduser.php admin password 10 admin@localhost.localdomain 2>/dev/null && echo 'Usuario creado via adduser.php'
