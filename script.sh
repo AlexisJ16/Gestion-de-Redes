@@ -608,30 +608,8 @@ fix_python_wrapper_issue() {
         # Configurar base de datos si no está configurada
         php /opt/librenms/build-base.php 2>/dev/null || true
         
-        # Configurar el usuario admin por defecto de manera más robusta
-        echo 'Configurando usuario admin...'
-        
-        # Verificar si el usuario existe y eliminarlo si es necesario
-        if php /opt/librenms/lnms user:list 2>/dev/null | grep -q 'admin'; then
-            echo 'Usuario admin existe, eliminándolo para recrear...'
-            mysql -u librenms -ppassword librenms -e "DELETE FROM users WHERE username='admin';" 2>/dev/null || true
-        fi
-        
-        # Crear usuario admin con método simplificado
-        echo 'Creando usuario admin en base de datos...'
-        mysql -u librenms -ppassword librenms librenms << 'EOSQL'
-INSERT INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) 
-VALUES ('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW()) 
-ON DUPLICATE KEY UPDATE 
-password='$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 
-level=10, 
-updated_at=NOW();
-EOSQL
-        
-        # Método alternativo con adduser.php
-        php /opt/librenms/adduser.php admin password 10 admin@localhost.localdomain 2>/dev/null || true
-        
-        echo 'Usuario admin configurado: admin / password'
+        # Configurar el usuario admin por defecto
+        php /opt/librenms/adduser.php admin admin 10 admin@localhost.localdomain 2>/dev/null || echo 'Usuario admin ya existe'
         
         # Ejecutar validate.php para verificar configuración
         php /opt/librenms/validate.php --fix 2>/dev/null || true
@@ -648,255 +626,6 @@ EOSQL
     sleep 30
     
     log_success "Problema de Python Wrapper Pollers solucionado"
-}
-
-# Configurar el Scheduler de LibreNMS
-configure_scheduler() {
-    log_info "Configurando Scheduler de LibreNMS..."
-    
-    sudo docker exec librenms bash -c "
-        # Navegar al directorio de LibreNMS
-        cd /opt/librenms
-        
-        # Asegurar permisos correctos
-        chown -R librenms:librenms /opt/librenms
-        
-        # Crear directorio para el scheduler si no existe
-        mkdir -p /opt/librenms/cache/proxmox
-        chown -R librenms:librenms /opt/librenms/cache
-        
-        # Configurar el scheduler en el crontab interno
-        echo '# LibreNMS Scheduler
-* * * * * librenms cd /opt/librenms && php artisan schedule:run >> /dev/null 2>&1' > /etc/cron.d/librenms-scheduler
-        
-        # Dar permisos al archivo de cron
-        chmod 644 /etc/cron.d/librenms-scheduler
-        
-        # Configurar variables de entorno para Laravel
-        echo 'APP_ENV=production
-APP_DEBUG=false
-APP_KEY=base64:' > /opt/librenms/.env.example
-        
-        # Generar clave de aplicación si no existe
-        if [ ! -f /opt/librenms/.env ]; then
-            cp /opt/librenms/.env.example /opt/librenms/.env
-            php artisan key:generate --force 2>/dev/null || true
-        fi
-        
-        # Configurar permisos para Laravel
-        chown -R librenms:librenms /opt/librenms/storage
-        chown -R librenms:librenms /opt/librenms/bootstrap/cache
-        chmod -R 775 /opt/librenms/storage
-        chmod -R 775 /opt/librenms/bootstrap/cache
-        
-        # Limpiar y optimizar Laravel
-        php artisan config:clear 2>/dev/null || true
-        php artisan cache:clear 2>/dev/null || true
-        php artisan route:clear 2>/dev/null || true
-        php artisan view:clear 2>/dev/null || true
-        
-        # Configurar la cola de trabajos
-        php artisan queue:restart 2>/dev/null || true
-        
-        # Iniciar el scheduler manualmente para verificar
-        php artisan schedule:list 2>/dev/null || echo 'Scheduler configurado'
-        
-        # Reiniciar cron para aplicar cambios
-        service cron reload 2>/dev/null || /etc/init.d/cron reload 2>/dev/null || systemctl reload cron 2>/dev/null || true
-        
-        echo 'Scheduler de LibreNMS configurado correctamente'
-    " 2>/dev/null || log_warning "Algunos comandos del scheduler fallaron"
-    
-    log_success "Scheduler de LibreNMS configurado"
-}
-
-# Configurar servicios en segundo plano
-configure_background_services() {
-    log_info "Configurando servicios en segundo plano..."
-    
-    sudo docker exec librenms bash -c "
-        # Crear archivo de servicio para el scheduler
-        cat > /etc/systemd/system/librenms-scheduler.service << 'EOF'
-[Unit]
-Description=LibreNMS Scheduler
-After=network.target
-
-[Service]
-Type=simple
-User=librenms
-WorkingDirectory=/opt/librenms
-ExecStart=/usr/bin/php /opt/librenms/artisan schedule:work
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        # Crear archivo de servicio para la cola de trabajos
-        cat > /etc/systemd/system/librenms-worker.service << 'EOF'
-[Unit]
-Description=LibreNMS Queue Worker
-After=network.target
-
-[Service]
-Type=simple
-User=librenms
-WorkingDirectory=/opt/librenms
-ExecStart=/usr/bin/php /opt/librenms/artisan queue:work --sleep=3 --tries=3
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        # Habilitar y iniciar servicios si systemd está disponible
-        if command -v systemctl &> /dev/null; then
-            systemctl daemon-reload 2>/dev/null || true
-            systemctl enable librenms-scheduler 2>/dev/null || true
-            systemctl enable librenms-worker 2>/dev/null || true
-            systemctl start librenms-scheduler 2>/dev/null || true
-            systemctl start librenms-worker 2>/dev/null || true
-        fi
-        
-        # Alternativa con supervisord si está disponible
-        if command -v supervisord &> /dev/null; then
-            cat > /etc/supervisor/conf.d/librenms.conf << 'EOF'
-[program:librenms-scheduler]
-command=/usr/bin/php /opt/librenms/artisan schedule:work
-directory=/opt/librenms
-user=librenms
-autostart=true
-autorestart=true
-redirect_stderr=true
-stdout_logfile=/opt/librenms/logs/scheduler.log
-
-[program:librenms-worker]
-command=/usr/bin/php /opt/librenms/artisan queue:work --sleep=3 --tries=3
-directory=/opt/librenms
-user=librenms
-autostart=true
-autorestart=true
-redirect_stderr=true
-stdout_logfile=/opt/librenms/logs/worker.log
-EOF
-            supervisorctl reread 2>/dev/null || true
-            supervisorctl update 2>/dev/null || true
-        fi
-        
-        echo 'Servicios en segundo plano configurados'
-    " 2>/dev/null || log_warning "Configuración de servicios en segundo plano parcialmente exitosa"
-    
-    log_success "Servicios en segundo plano configurados"
-}
-
-# Reiniciar y verificar todos los servicios
-restart_and_verify_services() {
-    log_info "Reiniciando y verificando todos los servicios..."
-    
-    # Reiniciar contenedores para aplicar todos los cambios
-    log_info "Reiniciando contenedores LibreNMS..."
-    sudo docker restart librenms librenms_db 2>/dev/null || true
-    
-    # Esperar a que los servicios se estabilicen
-    log_info "Esperando estabilización de servicios (60s)..."
-    sleep 60
-    
-    # Verificar que los contenedores estén corriendo
-    if sudo docker ps | grep -q "librenms" && sudo docker ps | grep -q "librenms_db"; then
-        log_success "✅ Contenedores reiniciados correctamente"
-    else
-        log_warning "⚠️  Algunos contenedores no reiniciaron correctamente"
-        sudo docker ps -a
-    fi
-    
-    # Ejecutar comandos de verificación dentro del contenedor
-    sudo docker exec librenms bash -c "
-        cd /opt/librenms
-        
-        # Verificar estado del scheduler
-        echo 'Verificando scheduler...'
-        php artisan schedule:list 2>/dev/null || echo 'Scheduler no disponible'
-        
-        # Verificar estado de la cola de trabajos
-        echo 'Verificando cola de trabajos...'
-        php artisan queue:work --stop-when-empty 2>/dev/null || echo 'Cola no disponible'
-        
-        # Ejecutar validación completa
-        echo 'Ejecutando validación completa...'
-        php validate.php 2>/dev/null | head -20 || echo 'Validación en progreso'
-        
-        # Verificar cron
-        echo 'Verificando servicios cron...'
-        service cron status 2>/dev/null || /etc/init.d/cron status 2>/dev/null || echo 'Cron verificado'
-    " 2>/dev/null || log_warning "Algunas verificaciones fallaron"
-    
-    log_success "Servicios reiniciados y verificados"
-}
-
-# Configurar usuarios y autenticación web
-configure_web_authentication() {
-    log_info "Configurando autenticación web y usuarios..."
-    
-    sudo docker exec librenms bash -c "
-        cd /opt/librenms
-        
-        # Asegurar que la base de datos esté completamente inicializada
-        php artisan migrate --force 2>/dev/null || true
-        
-        # Limpiar usuarios existentes para evitar conflictos
-        mysql -u librenms -ppassword librenms -e 'DELETE FROM users WHERE username=\"admin\";' 2>/dev/null || true
-        
-        # Crear usuario admin con diferentes métodos para asegurar compatibilidad
-        echo 'Creando usuario administrador...'
-        
-        # Método 1: Usando artisan (Laravel)
-        php artisan tinker --execute=\"
-            \\\$user = new App\\\Models\\\User();
-            \\\$user->username = 'admin';
-            \\\$user->password = bcrypt('password');
-            \\\$user->realname = 'Administrator';
-            \\\$user->email = 'admin@localhost.localdomain';
-            \\\$user->level = 10;
-            \\\$user->descr = 'Default Administrator';
-            \\\$user->can_modify_passwd = 1;
-            \\\$user->save();
-            echo 'Usuario creado via Artisan';
-        \" 2>/dev/null || echo 'Método Artisan falló'
-        
-        # Método 2: Inserción directa en base de datos con hash bcrypt
-        mysql -u librenms -ppassword librenms librenms << 'EOSQL' && echo 'Usuario creado via SQL'
-INSERT IGNORE INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) 
-VALUES ('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW());
-EOSQL
-        
-        # Método 3: Usando adduser.php con contraseña diferente
-        php adduser.php admin password 10 admin@localhost.localdomain 2>/dev/null && echo 'Usuario creado via adduser.php'
-        
-        # Verificar que el usuario fue creado
-        USER_COUNT=\$(mysql -u librenms -ppassword librenms -e 'SELECT COUNT(*) FROM users WHERE username=\"admin\";' -N 2>/dev/null || echo '0')
-        
-        if [ \"\$USER_COUNT\" -gt 0 ]; then
-            echo 'Usuario admin verificado en base de datos'
-            mysql -u librenms -ppassword librenms -e 'SELECT username, realname, email, level FROM users WHERE username=\"admin\";' 2>/dev/null || true
-        else
-            echo 'ERROR: Usuario admin no encontrado en base de datos'
-        fi
-        
-        # Configurar sesiones web correctamente
-        chown -R www-data:www-data /opt/librenms/storage 2>/dev/null || chown -R librenms:librenms /opt/librenms/storage
-        chmod -R 775 /opt/librenms/storage
-        
-        # Limpiar cache de autenticación
-        php artisan cache:clear 2>/dev/null || true
-        php artisan config:clear 2>/dev/null || true
-        php artisan session:flush 2>/dev/null || true
-        
-        echo 'Configuración de autenticación web completada'
-    " 2>/dev/null || log_warning "Algunos comandos de autenticación fallaron"
-    
-    log_success "Autenticación web configurada"
 }
 
 # Validar configuración final
@@ -980,42 +709,6 @@ validate_final_setup() {
         log_warning "⚠️  Crontab interno no configurado"
     fi
     
-    # Verificar scheduler de LibreNMS
-    if sudo docker exec librenms test -f /etc/cron.d/librenms-scheduler 2>/dev/null; then
-        log_success "✅ Scheduler de LibreNMS configurado"
-        
-        # Verificar que el scheduler esté funcionando
-        if sudo docker exec librenms php /opt/librenms/artisan schedule:list 2>/dev/null | grep -q "schedule:run"; then
-            log_success "✅ Scheduler respondiendo correctamente"
-        else
-            log_warning "⚠️  Scheduler configurado pero no responde"
-        fi
-    else
-        log_warning "⚠️  Scheduler no configurado"
-    fi
-    
-    # Verificar servicios de Laravel
-    if sudo docker exec librenms test -f /opt/librenms/.env 2>/dev/null; then
-        log_success "✅ Configuración de Laravel presente"
-    else
-        log_warning "⚠️  Configuración de Laravel faltante"
-    fi
-    
-    # Verificar usuario admin en base de datos
-    if sudo docker exec librenms_db mysql -u librenms -ppassword librenms -e "SELECT username FROM users WHERE username='admin';" 2>/dev/null | grep -q "admin"; then
-        log_success "✅ Usuario admin encontrado en base de datos"
-        
-        # Mostrar detalles del usuario
-        log_info "Detalles del usuario admin:"
-        sudo docker exec librenms_db mysql -u librenms -ppassword librenms -e "SELECT username, realname, email, level FROM users WHERE username='admin';" 2>/dev/null || true
-    else
-        log_warning "⚠️  Usuario admin no encontrado en base de datos"
-        log_info "Recreando usuario admin..."
-        
-        # Recrear usuario si no existe
-        sudo docker exec librenms mysql -u librenms -ppassword librenms -e "INSERT IGNORE INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) VALUES ('admin', '\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW());" 2>/dev/null || true
-    fi
-    
     # Ejecutar poller manual una vez para verificar funcionamiento
     log_info "Ejecutando poller manual de prueba..."
     sudo docker exec --user librenms librenms php /opt/librenms/poller.php -h $SERVER_IP -v 2>/dev/null | head -5 || log_warning "Poller manual no ejecutado correctamente"
@@ -1071,14 +764,8 @@ show_summary() {
     echo "================================================="
     echo
     log_success "URL de acceso: http://$SERVER_IP:8000"
-    log_info "🔐 CREDENCIALES DE ACCESO:"
-    echo "  👤 Usuario: admin"
-    echo "  🔑 Contraseña: password"
-    echo "  📧 Email: admin@localhost.localdomain"
-    echo "  🔰 Nivel: Administrador (10)"
-    echo
     log_info "Configuración completada automáticamente:"
-    echo "  📊 Base de datos: librenms / password" 
+    echo "  📊 Base de datos: librenms / password"
     echo "  🔧 SNMP Community: public (configurado automáticamente)"
     echo "  🖥️  Dispositivo local: $SERVER_IP (agregado automáticamente)"
     echo "  ⏰ Poller automático: cada 5 minutos (crontab + interno)"
@@ -1138,12 +825,8 @@ main() {
     configure_python_pollers
     configure_librenms_services
     fix_python_wrapper_issue
-    configure_scheduler
-    configure_background_services
     add_local_device
     setup_poller
-    configure_web_authentication
-    restart_and_verify_services
     validate_final_setup
     show_summary
     
