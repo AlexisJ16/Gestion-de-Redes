@@ -1005,10 +1005,8 @@ validate_final_setup() {
         
         # Recrear usuario si no existe
         sudo docker exec librenms bash -c "
-            mysql -u librenms -ppassword librenms -e \"
-            INSERT IGNORE INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) 
-            VALUES ('admin', '\\\$2y\\\$10\\\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW());
-            \"
+            HASH='\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'
+            mysql -u librenms -ppassword librenms -e \"INSERT IGNORE INTO users (username, password, realname, email, level, descr, can_modify_passwd, created_at, updated_at) VALUES ('admin', '\$HASH', 'Administrator', 'admin@localhost.localdomain', 10, 'Default Administrator', 1, NOW(), NOW());\"
         " 2>/dev/null || true
     fi
     
