@@ -1,16 +1,134 @@
 #!/bin/bash
 set -e
 
-echo "=== 🔍 Verificando dependencias ==="
-sudo apt update -y
+# Funciones de logging con colores
+log_info() {
+    echo -e "\033[1;34m[INFO]\033[0m $1"
+}
 
-# Instalar Git si no está
-if ! command -v git &> /dev/null; then
-  echo "➡️ Instalando git..."
-  sudo apt install -y git
-else
-  echo "✅ Git ya está instalado."
-fi
+log_success() {
+    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
+}
+
+log_warning() {
+    echo -e "\033[1;33m[WARNING]\033[0m $1"
+}
+
+log_error() {
+    echo -e "\033[1;31m[ERROR]\033[0m $1"
+}
+
+# Detectar sistema operativo y configurar variables
+detect_os() {
+    log_info "Detectando sistema operativo..."
+    
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$NAME
+        VER=$VERSION_ID
+    else
+        log_error "No se puede detectar el sistema operativo"
+        exit 1
+    fi
+    
+    # Configurar package manager según el OS
+    if [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]]; then
+        PKG_MANAGER="apt"
+        INSTALL_CMD="apt install -y"
+    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"Red Hat"* ]]; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+    elif [[ "$OS" == *"Fedora"* ]]; then
+        PKG_MANAGER="dnf"
+        INSTALL_CMD="dnf install -y"
+    else
+        log_warning "OS no reconocido: $OS. Intentando con apt..."
+        PKG_MANAGER="apt"
+        INSTALL_CMD="apt install -y"
+    fi
+    
+    log_success "Detectado: $OS $VER (usando $PKG_MANAGER)"
+}
+
+# Verificar privilegios sudo
+check_sudo() {
+    log_info "Verificando privilegios sudo..."
+    if sudo -n true 2>/dev/null; then
+        log_success "Privilegios sudo confirmados"
+    else
+        log_error "Este script requiere privilegios sudo"
+        exit 1
+    fi
+}
+
+# Verificar conexión a internet
+check_internet() {
+    log_info "Verificando conexión a internet..."
+    if ping -c 1 google.com &> /dev/null; then
+        log_success "Conexión a internet confirmada"
+    else
+        log_error "No hay conexión a internet"
+        exit 1
+    fi
+}
+
+# Verificar recursos del sistema
+check_resources() {
+    log_info "Verificando recursos del sistema..."
+    
+    # Verificar RAM (mínimo 1GB)
+    TOTAL_RAM=$(free -m | awk 'NR==2{printf "%.0f", $2}')
+    if [ $TOTAL_RAM -lt 1000 ]; then
+        log_warning "RAM insuficiente: ${TOTAL_RAM}MB (recomendado: 2GB+)"
+    else
+        log_success "RAM suficiente: ${TOTAL_RAM}MB"
+    fi
+    
+    # Verificar espacio en disco (mínimo 10GB)
+    AVAILABLE_SPACE=$(df / | awk 'NR==2 {print int($4/1024/1024)}')
+    if [ $AVAILABLE_SPACE -lt 10 ]; then
+        log_warning "Espacio en disco insuficiente: ${AVAILABLE_SPACE}GB (recomendado: 20GB+)"
+    else
+        log_success "Espacio en disco suficiente: ${AVAILABLE_SPACE}GB disponibles"
+    fi
+}
+
+# Actualizar sistema
+update_system() {
+    log_info "Actualizando sistema..."
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        sudo apt update -y
+    elif [ "$PKG_MANAGER" = "yum" ]; then
+        sudo yum update -y
+    elif [ "$PKG_MANAGER" = "dnf" ]; then
+        sudo dnf update -y
+    fi
+    log_success "Sistema actualizado"
+}
+
+# Instalar dependencias básicas
+install_dependencies() {
+    log_info "Instalando dependencias básicas..."
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        sudo $INSTALL_CMD curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release
+    elif [ "$PKG_MANAGER" = "yum" ]; then
+        sudo $INSTALL_CMD curl wget git unzip yum-utils device-mapper-persistent-data lvm2
+    elif [ "$PKG_MANAGER" = "dnf" ]; then
+        sudo $INSTALL_CMD curl wget git unzip dnf-plugins-core
+    fi
+    log_success "Dependencias básicas instaladas"
+}
+
+# Instalar Git
+install_git() {
+    if ! command -v git &> /dev/null; then
+        log_info "Instalando Git..."
+        sudo $INSTALL_CMD git
+        log_success "Git instalado correctamente"
+    else
+        log_success "Git ya está instalado ($(git --version))"
+    fi
+}
 
 # Instalar Docker
 install_docker() {
