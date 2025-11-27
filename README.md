@@ -70,12 +70,14 @@ Una vez desplegado, accede a LibreNMS en: `http://TU_IP_SERVIDOR:8000`
 ```
 Gestion-de-Redes/
 ├── 📜 README.md                              # Este archivo
-├── 🚀 deployLibrenms.sh                      # Script de despliegue automático
+├── 🚀 deployLibrenms.sh                      # Script de despliegue automático basico
 ├── 🐳 docker-compose.yml                     # Configuración Docker optimizada
+├── 🚀🚀 deploy-Librenms-with-config.sh       # Script de despliegue automatico que incluye las configuraciones iniciales de SNMP
 ├── 📋 GUIA DE DESPLIEGUE DOCKER LIBRENMS.md  # Guía básica de despliegue
 └── 📖 docs/                                  # Documentación adicional
     ├── Guia-Despliegue-LibreNMS-Completa.md  # Guía completa para ISPs
-    └── Resumen-i2t-raspberri.md             # Troubleshooting SNMP
+    ├── Configuraciones_Realizadas.md         # Guía de configuraciones, problemas encontrados, y soluciones aplicadas
+    └── Resumen-i2t-raspberri.md              # Troubleshooting SNMP
 ```
 
 ---
