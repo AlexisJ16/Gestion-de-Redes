@@ -77,7 +77,10 @@ Gestion-de-Redes/
 └── 📖 docs/                                  # Documentación adicional
     ├── Guia-Despliegue-LibreNMS-Completa.md  # Guía completa para ISPs
     ├── Configuraciones_Realizadas.md         # Guía de configuraciones, problemas encontrados, y soluciones aplicadas
-    └── Resumen-i2t-raspberri.md              # Troubleshooting SNMP
+    ├── PDG1-Final.pdf                        # Documento preliminar del proyecto
+    ├── PDG2-FINAL.md                         # Documento formal del proyecto terminado
+    └── Plataforma de gestion de red para pequeños ISP.docx                         # Documento formal en docx
+
 ```
 
 ---
