@@ -2,6 +2,12 @@
 
 **Plataforma de monitoreo de red con LibreNMS enfocada en pequeños y medianos proveedores de servicios de internet (ISP)**
 
+#### Proyecto de grado Ingenieria Telematica Universidad Icesi
+
+Felipe Velasco Sanchez
+
+Alexis Jaramillo
+
 [![Docker](https://img.shields.io/badge/Docker-20.10+-blue.svg)](https://www.docker.com/)
 [![LibreNMS](https://img.shields.io/badge/LibreNMS-Latest-green.svg)](https://www.librenms.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
