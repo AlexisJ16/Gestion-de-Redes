@@ -8,7 +8,7 @@ Autor: Felipe
 
 ## Resumen ejecutivo
 
-Trabajamos en la conexión de consola al MikroTik desde tu Mac, configuramos/verificamos un bridge entre los puertos físicos donde están conectadas la Raspberry Pi y tu Mac (ether16 y ether15), configuramos SNMP en el router, y diagnosticamos y resolvimos problemas L2/L3 que impedían que LibreNMS añadiera el router y que la Raspberry Pi pudiera hacer ping al gateway. Identificamos una duplicidad de la IP 192.168.173.1 en dos interfaces del router y la corregimos para estabilizar la conectividad.
+Trabajamos en la conexión de consola al MikroTik desde nuestro Mac, configuramos/verificamos un bridge entre los puertos físicos donde están conectadas la Raspberry Pi y tu Mac (ether16 y ether15), configuramos SNMP en el router, y diagnosticamos y resolvimos problemas L2/L3 que impedían que LibreNMS añadiera el router y que la Raspberry Pi pudiera hacer ping al gateway. Identificamos una duplicidad de la IP 192.168.173.1 en dos interfaces del router y la corregimos para estabilizar la conectividad.
 
 ---
 
