@@ -370,5 +370,4 @@ Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](L
 **🚀 ¡Empieza a monitorear tu red ahora mismo!**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/felipevelasco7/Gestion-de-Redes/main/deployLibrenms.sh -o deployLibrenms.sh && chmod +x deployLibrenms.sh && sudo ./deployLibrenms.sh
-```
+curl -fsSL https://raw.githubusercontent.com/felipevelasco7/Gestion-de-Redes/main/deployLibre
