@@ -1,8 +1,8 @@
----
-title: "Especificación de Requisitos para la Plataforma de Gestión de Red en Pequeños ISP"
-author: "Alexis Jaramillo Martínez – Felipe Velasco Sánchez"
-date: "Noviembre de 2025"
----
+
+# Especificación de Requisitos para la Plataforma de Gestión de Red en Pequeños ISP
+### Alexis Jaramillo Martínez – Felipe Velasco Sánchez
+#### Fecha: Noviembre de 2025
+
 
 # 1. Introducción
 

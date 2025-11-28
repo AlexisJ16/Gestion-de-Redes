@@ -226,4 +226,4 @@ Estos resultados indican que una plataforma como LibreNMS, instalada en hardware
 ---
 
 **Fecha: Noviembre de 2025**
-**Institución: Universidad ICESI, Programa de Ingeniería Telemática**
+**Institución: Universidad ICESI, Programa
